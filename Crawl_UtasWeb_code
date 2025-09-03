@@ -1,1 +1,88 @@
+import asyncio, os, re, time, random
+from urllib.parse import urlparse
+from playwright.async_api import async_playwright
+
+URLS = [
+    "https://www.utas.edu.au/about",
+    "https://www.utas.edu.au/courses",
+    "https://www.utas.edu.au/study/sustainability",
+    "https://www.utas.edu.au/about/campuses",
+    "https://www.utas.edu.au/community-and-partners",
+    "https://www.utas.edu.au/study",
+    "https://www.utas.edu.au/research",
+    "https://www.utas.edu.au/study/international",
+    "https://www.utas.edu.au/equity-diversity",
+    "https://www.utas.edu.au/search?query=+rankings+list+UTAS",
+    "https://www.utas.edu.au/about/news-and-stories",
+    "https://www.utas.edu.au/about/values",
+    "https://www.utas.edu.au/about/contact",
+    "https://www.utas.edu.au/community-and-partners/alumni/our-alumni",
+    "https://www.utas.edu.au/about/lutruwita-aboriginal-tasmania",
+    "https://www.utas.edu.au/uni-life/aboriginal-students-riawunna",
+    "https://www.utas.edu.au/about/news-and-stories",
+    "https://www.utas.edu.au/events",
+    "https://www.utas.edu.au/study/starting-at-the-university/orientation-program",
+    "https://www.utas.edu.au/about/events/open-day",
+    "https://www.utas.edu.au/about/work",
+    "https://www.utas.edu.au/library",
+    "https://utas.libcal.com/reserve/SASC",
+    "https://utas.libcal.com/",
+    "https://www.utas.edu.au/library/opening-hours",
+    "https://utas.rl.talis.com/index.html",
+]
+
+OUT_DIR = "utas_pages"  # Download folder
+UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
+
+def safe_name(url: str) -> str:
+    """
+    Convert URL into a safe filename (different query parameters will result in different filenames)
+    """
+    p = urlparse(url)
+    path = p.path if p.path else "/"
+    raw = (p.netloc + path + ("?" + p.query if p.query else "")).strip("/")
+    # Replace characters that are not suitable for filenames
+    name = re.sub(r"[^A-Za-z0-9._-]+", "_", raw)
+    if not name:
+        name = "index"
+    if not name.endswith(".html"):
+        name += ".html"
+    return name
+
+async def fetch_pages():
+    os.makedirs(OUT_DIR, exist_ok=True)
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(user_agent=UA, java_script_enabled=True)
+        page = await context.new_page()
+
+        for i, url in enumerate(URLS, start=1):
+            try:
+                print(f"[{i}/{len(URLS)}] Visiting:", url)
+                # Wait until the network is idle, closer to a fully rendered page
+                await page.goto(url, wait_until="networkidle", timeout=90000)
+
+                # If there is a cookie/consent popup, try to close it (selector should be adjusted for the actual site)
+                # try:
+                #     await page.get_by_role("button", name=re.compile("Accept|Agree", re.I)).click(timeout=3000)
+                # except Exception:
+                #     pass
+
+                html = await page.content()
+                fname = safe_name(url)
+                fpath = os.path.join(OUT_DIR, fname)
+                with open(fpath, "w", encoding="utf-8") as f:
+                    f.write(html)
+                print("   ✅ Saved ->", fpath)
+
+            except Exception as e:
+                print("   ⚠️  Failed:", url, "-", e)
+
+            # Random delay (3–6 seconds) to simulate human behavior and reduce blocking risk
+            time.sleep(random.uniform(3.0, 6.0))
+
+        await browser.close()
+
+if __name__ == "__main__":
+    asyncio.run(fetch_pages())
 
